@@ -9,7 +9,7 @@ import urllib,os
 
 #name of the text file which has all the homologs
 #The same file will hold all the pdb files
-fileName = '/media/qazi/MyDrive/Downloads/Homologs.txt'
+fileName = 'Path to the text file containing PDB codes'
 with open(fileName) as textFile:
         lines = textFile.readlines()
         for i, line in enumerate(lines):
