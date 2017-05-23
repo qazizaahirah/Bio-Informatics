@@ -14,8 +14,10 @@ import scipy.stats as stats
 from random import gauss
 import time
 import operator
+from scipy.stats import truncnorm,beta
 
-#Author: Qazi Zaahirah Dalhousie University
+
+#Author: Qazi Zaahirah 
 
 class PDBChains:
     def __init__(self):
@@ -341,19 +343,61 @@ class ResEntropy:
             data.append(data1)
         yticks = np.arange(0,11,2)        
         fig = plt.figure(1, figsize=(30, 20))
-        fig.suptitle(title,fontsize= 30)
+        #fig.suptitle(title,fontsize= 30)
         ax = fig.add_subplot(111)
-        ax.set_xlabel("Amino Acids", fontsize= 20)
-        ax.set_ylabel("Entropy Values", fontsize =20)
-        ax.set_yticks(yticks)
+        ax.set_xlabel("Amino Acids", fontsize= 30)
+        ax.set_ylabel("Entropy Values", fontsize =30)
+        #ax.set_yticks(yticks)
         ax.tick_params(axis = 'x', labelsize=30)
         ax.tick_params(axis = 'y', labelsize=30)
+        ax.set_ylim([0,5])
         bp = ax.boxplot(data,labels=labels)
         fig.savefig(compPath+'.png', bbox_inches='tight')
         filepath =compPath+'.txt'
         f = open(filepath,'w')
         f.write(str(newdict)) 
         return newdict
+    def BoxPlotEntropyForAA_CloseToActiveSite(self,aalis,homolis,entropy,chain,compPath,pdb,Inpath,ligandcoor,dist_from_AS):
+        """This function takes entropy of as a input creates a dictionary in which key correspond to 20 amino acids and the values are
+        the respective values of the amino acids and then generates a box plot for the values of each amino acid that are close to active site"""
+        activesite = activeSite()
+        newdict=OrderedDict()
+        for aa in aalis:
+            newdict.update({aa:[]})        
+        m = pdb.orderofmodels[0]
+        model=pdb.GetModel(m)
+        residues = model.GetResidues()
+        homoindex=[r.index for r in residues if r.GetAtoms()[0].tempFactor!=-0.01 ]
+        distance=[]
+        activeSiteindex = activesite.distligandresidue(Inpath,ligandcoor)
+        coordinates = [res.Centroid().GetPosition() for res in residues]
+        randomsite = random.choice(coordinates)
+        activesitecoor = coordinates[int(activeSiteindex)]
+        entropyindexCount = 0
+        for res,name in zip(residues,chain):
+            if res.index in homoindex:
+                entropyindexCount=entropyindexCount+1
+                centroid = res.Centroid()
+                dis = centroid.DistanceToligand(activesitecoor)
+                if dis<dist_from_AS:
+                    newdict[name].append(entropy[entropyindexCount])
+        labels=newdict.keys()
+        print newdict
+        data=[]
+        
+        for res in newdict.keys():
+            data1=newdict[res]
+            data.append(data1)
+        yticks = np.arange(0,11,2)        
+        fig = plt.figure(1, figsize=(30, 20))
+        ax = fig.add_subplot(111)
+        ax.set_xlabel("Amino Acids", fontsize= 30)
+        ax.set_ylabel("Entropy Values", fontsize =30)
+        ax.set_yticks(yticks)
+        ax.tick_params(axis = 'x', labelsize=30)
+        ax.tick_params(axis = 'y', labelsize=30)
+        bp = ax.boxplot(data,labels=labels)
+        fig.savefig(compPath+'CloseToAS.png', bbox_inches='tight')    
     def BoxPlotAggregateContactEntropyfromtxt(self,path,dictlist):
         """ This function takes dictionaries as input aggregates the dictionaries and forms the box plot"""
         f = open(path+dictlist[0]+'.txt','r')
@@ -554,19 +598,23 @@ class ResEntropy:
                 hydrophobicityDict.update({line[0]:line[4]})
                 sizeDict.update({line[0]:line[3]})
         #get the data for the plots
-        xValues =[]
-        ySize =[]
-        yHydro = []
+        entropyValues =[]
+        Size =[]
+        Hydro = []
         for key, value in entropydict.iteritems():
-            xValues.append(value)
-            ySize.append(float(sizeDict[key]))
-            yHydro.append(float(hydrophobicityDict[key]))
-            
+            if value > 0:
+                entropyValues.append(value)
+                Size.append(float(sizeDict[key]))
+                Hydro.append(float(hydrophobicityDict[key]))
+        
+        t = statisticalTests()
+        print 'corelation between size and entropy '+str(t.findcorelations(entropyValues, Size))
+        print 'corelation between Hydrophobicity and entropy '+str(t.findcorelations(entropyValues, Hydro))
         mp = MyPlots()
-        mp.simplescatterPlot(xValues, ySize, " Mean Entropy ", "Size of amino acids", "ScatterPlot between Mean Entropy and Size of "+filename,
-                             outputPath+"Size"+filename,count)
-        mp.simplescatterPlot(xValues, yHydro, " Mean Entropy ", "Hydrophobicity of amino acids", "Scatter Plot between Mean Entropy and Hydrophobicity of "+filename,
-                            outputPath+"Hydrophobicity"+filename,count)        
+        mp.simplescatterPlot(Size, entropyValues, " Size of amino acids ", "Mean Entropy", "ScatterPlot between Mean Entropy and Size of "+filename,
+                             outputPath+"Size"+filename,count,regression_line=True)
+        mp.simplescatterPlot(Hydro, entropyValues, "Hydrophobicity of amino acids", "Mean Entropy", "Scatter Plot between Mean Entropy and Hydrophobicity of "+filename,
+                            outputPath+"Hydrophobicity"+filename,count,regression_line=True)        
     def SeqEntropyplot(self,path,activesitecoor):
         """ This function reads a pdb file,  plots entropy vs
             PDB sequence plot. This function also calls distligandresidue from the class active site
@@ -683,7 +731,7 @@ class ResEntropy:
         plt.annotate('activesiteUB', xy=(asIndex2, sma2[asIndex2]), xytext=(asIndex2,sma2[asIndex2]+1),
                      arrowprops=dict(facecolor='red', shrink=0.05))
         plt.show() 
-    def SeqEntropyPlotfor2SequencesB(self,path1,path2,fastapath,title,activeSitecoorB,activeSitecoorUB):
+    def SeqEntropyPlotfor2SequencesB(self,path1,path2,fastapath,title,activeSitecoorB,activeSitecoorUB,plot_diff):
         #this function is the second version of SeqEntropyPlotfor2SequencesA because that thing was clearly not working
             """ This function reads a pdb file, gets plots entropy vs
                 PDB sequence. This function also calls distligandresidue from the class active site
@@ -713,7 +761,6 @@ class ResEntropy:
             residues1 = model1.GetResidues()
             seq1 = list(model1.AsFASTA())
             entropy1=[r.GetAtoms()[0].tempFactor for r in residues1]
-            entropy=[r.GetAtoms()[0].tempFactor for r in residues1]
             entropy1[activesiteindex1]='!'+str(entropy1[activesiteindex1])
             print seq1[activesiteindex1]
             print activesiteindex1
@@ -723,7 +770,11 @@ class ResEntropy:
                 if i[1] =='-':
                     entropy1.insert(i[0]+offset,-1)
                     offset = offset+1
-            for i in ungappedindex: 
+                    
+                
+            for i in ungappedindex:
+                if i>=len(entropy1):
+                    continue
                 ungappedentropy1.append(entropy1[i])
             for i,j in enumerate(ungappedentropy1):
                 if '!' in str(j):
@@ -745,9 +796,11 @@ class ResEntropy:
             offset = 1
             for i in enumerate(alignSeq2): 
                 if i[1] =='-':
-                    entropy2.insert(i[0]+offset,-0.01)
+                    entropy2.insert(i[0]+offset,-1)
                     offset = offset+1        
             for i in ungappedindex: 
+                if i>=len(entropy2):
+                    continue
                 ungappedentropy2.append(entropy2[i])              
             for i,j in enumerate(ungappedentropy2):
                 if '!' in str(j):
@@ -761,30 +814,31 @@ class ResEntropy:
             #plot the entropy
             x= range(len(alignSeq1))
             plt.subplot(111)
+            plt.clf()
             plt.title('Sequence vs Running Average Entropy Plot for Bound Unbound '+title)
             plt.ylim(-1,10)
             xticks = [alignSeq1[i] for i in ungappedindex]
             plt.xticks(x, xticks,rotation='horizontal')
             plt.tick_params(labelsize=8)
+            plt.tick_params(axis='y',labelsize= 20)
             plt.xlabel('Homologous Sequence',fontsize = 20)
             plt.ylabel('Entropy',fontsize = 20)
-            #plt.plot(ungappedentropy1,'b-')
+            
             plt.annotate('activesiteB', xy=(asIndex1, sma1[asIndex1]), xytext=(asIndex1,sma1[asIndex1]+3),
-            
-            
-            
-            
                          arrowprops=dict(facecolor='black', shrink=0.05))
-            #plt.plot(ungappedentropy2,'g-')
-            plt.plot(difference,'-r',label='Difference')
+            if plot_diff== False:
+                plt.plot(ungappedentropy1,'b-')
+                plt.plot(ungappedentropy2,'g-')
+            else:
+                plt.plot(difference,'-r',label='Difference')
             plt.annotate('activesiteUB', xy=(asIndex2, sma2[asIndex2]), xytext=(asIndex2,sma2[asIndex2]+3),
                          arrowprops=dict(facecolor='red', shrink=0.05))
             #line_up = plt.plot([1,2,3], label='Bound')
             #line_down = plt.plot([3,2,1], label='UnBound')
-            plt.legend()
+            #plt.legend()
             plt.show()
             q = pdb1._FastaPdbMatch(fastapath)
-            pdb1.Map2Protein(path1+'3.pdb',difference,0,fastapath) 
+            #pdb1.Map2Protein(path1+'3.pdb',difference,0,fastapath) 
             
     def PlotContactEntropyvsSequenceEntropy(self, contactEntropy, SequenceEntropy,homosequence,title):
         x= range(len(homosequence))
@@ -837,28 +891,25 @@ class activeSite:
         print 'done!'
     
     
-    def distFromLigands_entropy(self,pdb,compPath,title,rand,ligandcoor):
+    def entropy_AA_CloseToActiveSite(self,pdb,Inpath,title,rand,ligandcoor,outputhPath,dist_from_AS,activesitepos):
         """This function assumes that mg and mn are the active sites of the protein. This function access a new function in PDBnet
                def DistanceToligand(self, ligandcord):
-                   return distance.dist(self.GetPosition(),ligandcord)."""
+                   return distance.dist(self.GetPosition(),ligandcord
+                   it also gets the random entropy values from the protein if the value of rand is True
+        
+                   The count of the random values is equal to count of AA close to active site (dist_from_AS Angstrom))."""
         m = pdb.orderofmodels[0]
         model=pdb.GetModel(m)
         residues = model.GetResidues()
         homoindex=[r.index for r in residues if r.GetAtoms()[0].tempFactor!=-0.01 ]
         entropy=[r.GetAtoms()[0].tempFactor for r in residues if r.index in homoindex]
-        enolaseB=(26.634 ,74.962 ,12.870)
-        gdB=(-23.716, -8.568, -8.136)
-        mrB =(-20.292,60.052 ,55.442)
-        mleB =(47.778,31.504,34.784)
-        enolaseUB=(20.212,17.290,27.123)
-        gdUB=(-17.144,-17.786,-3.096)
-        mrUB=(-19.509,60.979,56.437)
-        mleUB=(-7.516,16.764,13.258)
         distance=[]
-        activeSiteindex = activeSite.distligandresidue(self, compPath+'.pdb',ligandcoor)
+        activeSiteindex = activeSite.distligandresidue(self, Inpath,ligandcoor)
         coordinates = [res.Centroid().GetPosition() for res in residues]
         randomsite = random.choice(coordinates)
-        activesitecoor = coordinates[int(activeSiteindex)]
+        if activesitepos=='MG':activesitecoor=ligandcoor
+        else:
+            activesitecoor = coordinates[int(activeSiteindex)]        
         #get the centroid of all the residues
         for res in residues:
             if res.index in homoindex:
@@ -866,12 +917,10 @@ class activeSite:
                 dis = centroid.DistanceToligand(activesitecoor)
                 distance.append(dis)
         Proteintuple=[[d,e] for d,e in zip(distance,entropy)]
-        tup=[[d,e] for d,e in zip(distance,entropy) if d<10]
+        tup=[[d,e] for d,e in zip(distance,entropy) if d<dist_from_AS]
         randomtup = []
         x = [ a[0] for a in tup]
         y = [ a[1] for a in tup]        
-
-        #np.save(compPath, tup)
         plt.title('Active Site for'+title)
         plt.ylim(0,8)
         plt.xlabel('DistanceFromActiveSite')
@@ -883,7 +932,7 @@ class activeSite:
         rx = [ a[0] for a in randomtup]
         ry = [ a[1] for a in randomtup]
         if rand == True:
-            f = open(compPath+'random2.csv', 'w')
+            f = open(outputhPath+'random.csv', 'w')
             writer = csv.writer(f,delimiter='\t') 
             for t in randomtup:
                 writer.writerow(t)
@@ -891,14 +940,48 @@ class activeSite:
             plt.plot(rx,ry,"o")
             plt.show()
         else:      
-            f = open(compPath+'.csv', 'w')
+            f = open(outputhPath+'.csv', 'w')
             writer = csv.writer(f,delimiter='\t') 
             for t in tup:
                 writer.writerow(t)
             f.close()            
             plt.plot(x,y,"o")
-            plt.show()        
-        
+            #plt.show()        
+    def Entropy_AA_greaterthan10A(self,pdb,Inpath,ligandcoor,outputhPath,dist_from_AS,activesitepos):
+        """This function assumes that mg and mn are the active sites of the protein. This function access a new function in PDBnet
+               def DistanceToligand(self, ligandcord):
+                   return distance.dist(self.GetPosition(),ligandcord. It gets all the entropy values of all the amino acids that are >10dist_from_AS Angstrom
+                   from active site)."""
+        m = pdb.orderofmodels[0]
+        model=pdb.GetModel(m)
+        residues = model.GetResidues()
+        homoindex=[r.index for r in residues if r.GetAtoms()[0].tempFactor!=-0.01 ]
+        entropy=[r.GetAtoms()[0].tempFactor for r in residues if r.index in homoindex]
+        distance=[]
+        activeSiteindex = activeSite.distligandresidue(self, Inpath,ligandcoor)
+        coordinates = [res.Centroid().GetPosition() for res in residues]
+        randomsite = random.choice(coordinates)
+        if activesitepos=='MG':activesitecoor = ligandcoor
+        else:
+            activesitecoor = coordinates[int(activeSiteindex)]          
+        #get the centroid of all the residues
+        for res in residues:
+            if res.index in homoindex:
+                centroid = res.Centroid()
+                dis = centroid.DistanceToligand(activesitecoor)
+                distance.append(dis)
+        Proteintuple=[[d,e] for d,e in zip(distance,entropy)]
+        tup_lessthan10=[[d,e] for d,e in zip(distance,entropy) if d<dist_from_AS]
+        tup_greaterthan10= [[d,e] for d,e in zip(distance,entropy) if d>dist_from_AS]
+        entropyAS = [ a[1] for a in tup_lessthan10] 
+        entropy_full = [ a[1] for a in tup_greaterthan10] 
+        f = open(outputhPath+'Rest'+str(dist_from_AS)+'.csv', 'w')
+        #f = open(outputhPath+'Rest.csv', 'w')
+        writer = csv.writer(f,delimiter='\t') 
+        for t in tup_greaterthan10:
+            writer.writerow(t)
+        f.close()
+        return entropyAS,entropy_full
     def distligandresidue(self, path,ligandcoordinates): 
         """This function takes a PDB file and ligand coordinates as input and finds the index of the residue 
         which is closest to the ligand"""
@@ -948,7 +1031,37 @@ class activeSite:
         plt.ylabel('Entropy')
         plt.plot(distance,entropy,"o")
         plt.show()
+    def FCMmatrixindex_closetoAS(self,pdbpath,homologousIndex,ligandcoor):
+        """Input: PDB file to get the index of the residues that are at a distance of 15 from active site
+           Output: Matrix index of the residues that are close to active site
         
+        """
+        acsite = activeSite()
+        activeSiteindex = acsite.distligandresidue(pdbpath,ligandcoor)
+        distance={}
+        pdb = PDBnet.PDBstructure(pdbpath)
+        if pdb.orderofmodels ==[]:
+            ch = pdb.GetChainNames()
+            chain = pdb.GetChain(ch[0])
+            residues = chain.GetResidues()
+        else:
+            m = pdb.orderofmodels[0]
+            model=pdb.GetModel(m)  
+            residues = model.GetResidues()
+        coordinates = [res.Centroid().GetPosition() for res in residues]
+        activesitecoor = coordinates[int(activeSiteindex)]
+        homoindex = [str(v) for v in homologousIndex]
+        distance = {x:0 for x in homoindex}
+        for res in residues:
+            if res.index in homoindex:
+                centroid = res.Centroid()
+                dis = centroid.DistanceToligand(activesitecoor)
+                distance[res.index]=dis
+        
+        resindex=[int(index) for index,d in distance.iteritems() if d<15]
+        matrixindex = [homoindex.index(str(i)) for i in resindex]
+        return matrixindex
+         
 class PDBChainComp:
     def ChainCompfor2(self,path):
         """ Compare if the two chains in a PDB are equal if they are Calculate the FCM matrix to see the structural difference.
@@ -1146,7 +1259,7 @@ class simulatedata:
         """Input: path of the pdb file that needs to be used to get the active site
                   fcm : fcm[0] is the frequencey contact matrix and fcm[1] is the fastaresidue homologs
                   ligandcoordinates: are the coordinates of the ligand that are used to find the active site
-           Output: a csv file with FCm values of the residues that are at a distance of 10 A from the active site 
+           Output: a csv file with FCm values of the residues that are at a distance of dist_from_AS A from the active site 
                    and other normal distribution with same mean and different standard deviation truncated between 0 and 1
         """
         acsite = activeSite()
@@ -1208,47 +1321,28 @@ class simulatedata:
             """Input: path of the pdb file that needs to be used to get the active site
                       fcm : fcm[0] is the frequencey contact matrix and fcm[1] is the fastaresidue homologs
                       ligandcoordinates: are the coordinates of the ligand that are used to find the active site
-               Output: a csv file with FCM values of the residues that are at a distance of 10 A from the active site 
+               Output: a csv file with FCM values of the residues that are at a distance of dist_from_AS A from the active site 
                        and other 100 normal distribution with same mean and different standard deviation truncated between 0 and 1
             """
-            acsite = activeSite()
-            activeSiteindex = acsite.distligandresidue(pdbpath,ligandcoor)
-            distance={}
-            pdb = PDBnet.PDBstructure(pdbpath)
-            if pdb.orderofmodels ==[]:
-                ch = pdb.GetChainNames()
-                chain = pdb.GetChain(ch[0])
-                residues = chain.GetResidues()
-            else:
-                m = pdb.orderofmodels[0]
-                model=pdb.GetModel(m)  
-                residues = model.GetResidues()
-            coordinates = [res.Centroid().GetPosition() for res in residues]
-            activesitecoor = coordinates[int(activeSiteindex)]
-            #homoindex = [ r.index for r in residues if r.GetAtoms()[0].tempFactor!=-0.01 ]
-            homoindex = [str(v) for v in fcm[1]]
-            distance = {x:0 for x in homoindex}
-            for res in residues:
-                if res.index in homoindex:
-                    centroid = res.Centroid()
-                    dis = centroid.DistanceToligand(activesitecoor)
-                    distance[res.index]=dis
-            
-            resindex=[int(index) for index,d in distance.iteritems() if d<10]
-            matrixindex = [homoindex.index(str(i)) for i in resindex]
+            a = activeSite()
+            matrixindex = a.FCMmatrixindex_closetoAS(pdbpath,fcm[1],ligandcoor)
             #matrixindex = [homoindex.index(i) for i in resindex]
             combos = [combo for combo in itertools.combinations(matrixindex, 2)]
             data =[] 
             for comb in combos:
                 data.append(fcm[0][comb[0]][comb[1]])
+    
             filterdata = filter(lambda a :a != 0.0, data)
+            #filterdata = [x for x in data]
+            #betatfit = beta.fit(filterdata)
             f = file(csvpath+'.csv','wb')
             writer = csv.writer(f, delimiter = '\t')
             for row in filterdata:
                 writer.writerow([row])
             f.close()
             shape = len(filterdata)
-            sigmavalues = np.arange(0,1,0.05)
+            #sigmavalues = np.arange(0.001,0.01,0.001)
+            sigmavalues=np.arange(0,1,0.05)
             count = 0          
             for sigma in sigmavalues:
                 print 'sigma ',sigma
@@ -1257,8 +1351,22 @@ class simulatedata:
                     random.seed() 
                     normaldata =[]
                     for i in filterdata:
-                        myvalue = min(max(gauss(float(i),float(sigma)),0.0),1.0)
-                        #print i ,' ',myvalue
+                        a, b = (0 - i) / sigma, (1.00000000000001 - i) / sigma
+                        myvalue= truncnorm.rvs(a,b,loc= i, scale = sigma)
+                        #myvalue = beta.rvs(betatfit[0],betatfit[1],loc = betatfit[2],scale = betatfit[3])
+                        #x = random.gauss(0,sigma) + math.log(i/(1-i))
+                        #myvalue = 1/(1+math.exp(-x))
+                        #myvalue = min(max(random.gauss(float(i),float(sigma)),0.0),1.0)
+                        #flag = False
+                        #while  flag == False:
+                            #myvalue = gauss(float(i),float(sigma))
+                            #print i, " ", myvalue
+                            #if 0 < myvalue <= 1:
+                                #normaldata.append(myvalue)
+                                #break
+                            #else:
+                                #flag == False
+                        #print myvalue
                         normaldata.append(myvalue)
                     mycsv.append(normaldata)
                 #plt.plot(filterdata,color ='r')
@@ -1351,13 +1459,12 @@ class simulatedata:
                     
                 fig.savefig(outpath+f[:-4]+'.png')               
                 count = count+1
-    def plot_sum_Pvalues_lessthan(self,inpath,outpath):
+    def plot_sum_Pvalues_lessthan(self,inpath,outpath,xaxis):
         """this is a cleaner version of plotPvaluesfromIndividualcsv. 
         It takes the csv for every fileas input and then calculates the number of values that 
         are less than 0.05 for each sigma
         """
         filenames = os.listdir(inpath)
-        xaxis = np.arange(0,1,0.05)
         yaxis = np.arange(0,100,1)
         count = 0
         for f in filenames: 
@@ -1371,17 +1478,18 @@ class simulatedata:
                     print lessthanval
                     newvalues.append(lessthanval)
                 fig = plt.figure(count, figsize=(30, 20))
-                fig.suptitle('Number of P values less than 0.05 vs Sigma '+f,fontsize= 30)
+                #fig.suptitle('Count of P values less than 0.05 vs Sigma '+f[:-4],fontsize= 40)
                 ax = fig.add_subplot(111)
-                ax.set_xlabel('Sigma', fontsize= 20)
-                ax.set_ylabel('Number of P values less than 0.05', fontsize =20)
+                ax.set_xlabel('Sigma', fontsize= 40)
+                ax.set_ylabel('Count of P values less than 0.05', fontsize =40)
                 ax.tick_params(axis = 'x', labelsize=30)
                 ax.tick_params(axis = 'y', labelsize=30)
                 ax.set_ylim([1,100])
+                ax.set_xticks(xaxis)
                 ax.bar(xaxis,newvalues,width=0.01,color='r')        
                 fig.savefig(outpath+f[:-4]+'.png')               
                 count = count+1
-    def plot_sum_Pvalues_lessthan_for_2_datasets(self,inpath,outpath):
+    def plot_sum_Pvalues_lessthan_for_2_datasets(self,inpath,outpath,xaxis):
         """This function is same as that of plot_sum_Pvalues_lessthan but reads two csv files at once instead of reading things from the folder 
         one by one
         """
@@ -1502,37 +1610,15 @@ class simulatedata:
         """This function counts the number of values in the FCM (also the values) that are close to the active site and are not equal to 0.0
         and plot the values for all the sub families
         """
-        acsite = activeSite()
-        activeSiteindex = acsite.distligandresidue(pdbpath,ligandcoor)
-        distance={}
-        pdb = PDBnet.PDBstructure(pdbpath)
-        if pdb.orderofmodels ==[]:
-            ch = pdb.GetChainNames()
-            chain = pdb.GetChain(ch[0])
-            residues = chain.GetResidues()
-        else:
-            m = pdb.orderofmodels[0]
-            model=pdb.GetModel(m)  
-            residues = model.GetResidues()
-        coordinates = [res.Centroid().GetPosition() for res in residues]
-        activesitecoor = coordinates[int(activeSiteindex)]       
-        #homoindex=[ r.index for r in residues if r.GetAtoms()[0].tempFactor!=-0.01 ]
-        homoindex = [str(v+1) for v in fcm[1]]
-        distance = {x:0 for x in homoindex}
-        for res in residues:
-            if res.index in homoindex:
-                centroid = res.Centroid()
-                dis = centroid.DistanceToligand(activesitecoor)
-                distance[res.index]=dis
-        
-        resindex=[int(index) for index,d in distance.iteritems() if d<10]
-        matrixindex = [homoindex.index(str(i)) for i in resindex]
+        a = activeSite()
+        matrixindex = a.FCMmatrixindex_closetoAS(pdbpath,fcm[1],ligandcoor)
         combos = [combo for combo in itertools.combinations(matrixindex, 2)]
         data =[] 
         for comb in combos:
             data.append(fcm[0][comb[0]][comb[1]])
         filterdata = filter(lambda a :a != 0.0, data)
         return filterdata
+        #return data
         #return (len(filterdata))
         
     def PlotFCM_2_Distribution(self, data1,data2,outputPath,count):
@@ -1554,16 +1640,37 @@ class simulatedata:
     def BarPlots_FCMDistribution(self,data,outputPath,count,plotname):
         """This function generates histograms for the number of times a value appears in the FCM"""
         fig = plt.figure(count, figsize=(30, 20))
-        xaxis = np.arange(0,1,0.05)
-        fig.suptitle('Bar chart for FCM values close to Active site for '+plotname,fontsize= 30)
+        xticks = np.arange(0,1,0.05)
+        #fig.suptitle('Bar chart for FCM values close to Active site for '+plotname,fontsize= 30)
         ax = fig.add_subplot(111)
         ax.set_xlabel('FCM values', fontsize= 40)    
-        ax.set_ylabel('Number of FCM values of a particular value', fontsize= 40)    
+        ax.set_ylabel('Count of FCM values', fontsize= 40)    
         ax = fig.add_subplot(111)
+        ax.set_xticks(xticks)
+        #ax.set_ylim(0,200)
         ax.tick_params(axis = 'x', labelsize=30)
-        ax.tick_params(axis = 'y', labelsize=30)
-        dist1 = ax.hist(data,color ='r',rwidth=0.2)
-        fig.savefig(outputPath+'.png')   
+        ax.tick_params(axis = 'y', labelsize=30)     
+        dist1 = ax.hist(data,color ='r',rwidth=0.05)
+        fig.savefig(outputPath+'.png')  
+    def BarPlots_distributionforBoundUnbound(self,dataB,dataUB,outputPath,count,plotname):
+        """This function generates histograms for the number of times a value appears in the FCM"""
+        fig = plt.figure(count, figsize=(30, 20))
+        #xticks = np.arange(0,1,0.1)
+        xticks = np.arange(0,10,1)
+        #fig.suptitle('Bar chart for FCM values close to Active site for '+plotname,fontsize= 30)
+        ax = fig.add_subplot(111)
+        #ax.set_xlabel('FCM values', fontsize= 40)    
+        #ax.set_ylabel('Count of FCM values', fontsize= 40)    
+        ax.set_xlabel('Entropy values', fontsize= 40)    
+        ax.set_ylabel('Count of Entropy values', fontsize= 40)           
+        ax = fig.add_subplot(111)
+        ax.set_xticks(xticks)
+        #ax.set_ylim(0,200)
+        ax.tick_params(axis = 'x', labelsize=30)
+        ax.tick_params(axis = 'y', labelsize=30)     
+        ax.hist(dataB,color ='r',rwidth=0.05)
+        ax.hist(dataUB,color ='b',rwidth=0.05)
+        fig.savefig(outputPath+'.png')        
 class simulateFCM:
     def createFCM(self,dimensions,residue_Closeto_activeSite):
         """This function creates a random unbound and bound FCM. The residues close to 
@@ -1595,40 +1702,72 @@ class simulateFCM:
         for x in permuatations:
             boundFCM[x[0]][x[1]] = 0.5
         return boundFCM,unBoundFCM
-        
+    def simulateAggregateMatrix_FCM(self,aggregatematrix,numstates,ligandcoor,pdbpath,csvpath,homologousIndex):
+        sigma = np.arange(0.0,1.0,0.05)
+        #sigma = np.arange(0.001,0.01,0.001)
+        a = activeSite()
+        matrixindex = a.FCMmatrixindex_closetoAS(pdbpath,homologousIndex,ligandcoor) 
+        combos = [combo for combo in itertools.combinations(matrixindex, 2)]       
+        for s in sigma:
+            print s
+            mycsv=[]            
+            for number in range(0,100):
+                random.seed() 
+                simulated_FCM = np.copy(aggregatematrix)
+                for i in range(aggregatematrix.shape[0]):
+                    for j in range(aggregatematrix.shape[0]):
+                        #simulated_FCM[i][j] = min(max(int(random.gauss((aggregatematrix[i][j]),s)),0),numstates)
+                        simulated_FCM[i][j] = min(max(aggregatematrix[i][j]+int(random.gauss(0,s)),0),numstates)
+                simulated_FCM /=float(numstates)
+                values_closeToAS = [] 
+                for comb in combos:
+                    values_closeToAS.append(simulated_FCM[comb[0]][comb[1]] )
+                filterdata = filter(lambda a :a != 0.0, values_closeToAS)
+                mycsv.append(filterdata)
+            f2 = file(csvpath+'_'+str(s)+'.csv','wb')
+            writer1 = csv.writer(f2, delimiter = '\t')                    
+            transposecsv = map(list, zip(*mycsv))
+            for row in transposecsv:
+                writer1.writerow(row)
+            f2.close()
+            print f2            
+            
 class MyPlots:
-    def simplescatterPlot(self, xValues, yValues, xlabel,ylabel,title,outputPath,count):
-        #xticks = np.arange(min(xValues),max(xValues)+1,1)
-        #yticks = np.arange(min(yValues),max(yValues)+1,0.5)
+    def simplescatterPlot(self, xValues, yValues, xlabel,ylabel,title,outputPath,count,regression_line):
+        xticks = np.arange(min(xValues),max(xValues)+1,1)
+        yticks = np.arange(min(yValues),max(yValues)+1,0.5)
         fig = plt.figure(count, figsize=(30, 20))
-        fig.suptitle(title,fontsize= 30)
+        #fig.suptitle(title,fontsize= 30)
         ax = fig.add_subplot(111)
-        ax.set_xlabel(xlabel, fontsize= 20)
-        ax.set_ylabel(ylabel, fontsize =20)
+        ax.set_xlabel(xlabel, fontsize= 30)
+        ax.set_ylabel(ylabel, fontsize =30)
         #ax.set_xticks(xticks)
         #ax.set_yticks(yticks)
-        ax.set_xlim(min(xValues),max(xValues)+1)
-        ax.set_ylim(min(yValues),max(yValues)+1)
+        #this is used to get the linear regression line
+        if regression_line == True:
+            fit = np.polyfit(xValues, yValues, deg=1)
+            ax.plot(xValues, fit[0] *np.float64(xValues) + fit[1], color='blue')        
+        ax.set_xlim(min(xValues)-1,max(xValues)+1)
+        ax.set_ylim(min(yValues)-1,max(yValues)+1)
         ax.tick_params(axis = 'x', labelsize=30)
         ax.tick_params(axis = 'y', labelsize=30)
-        pt = ax.scatter(xValues,yValues,color='r')      
+        pt = ax.scatter(xValues,yValues,color='r', s=500, marker='o')      
         fig.savefig(outputPath+'.png')          
         
         
-    def simpleBarPlot(self, xaxis, yValues, xlabel,ylabel,xticks,title,xticklables,outputPath,count):
-        xticks = np.arange(1,6,1)
+    def simpleBarPlot(self, xaxis, yValues, xlabel,ylabel,xticks,xticklables,title,outputPath,count):
         fig = plt.figure(count, figsize=(30, 20))
         fig.suptitle(title,fontsize= 30)
         ax = fig.add_subplot(111)
         ax.set_xlabel(xlabel, fontsize= 20)
         ax.set_ylabel(ylabel, fontsize =20)
         ax.set_xticks(xticks)
-        ax.set_xticklabels(xticklables,rotation = 'vertical')
         ax.tick_params(axis = 'x', labelsize=20)
         ax.tick_params(axis = 'y', labelsize=30)
-        pt = ax.bar(xaxis,yValues,width=0.05,color='r')      
-        fig.savefig(outputPath+'.png')     
-        
+        ax.set_xticklabels(xticklables,rotation = 'vertical')
+        pt = ax.bar(xticks,yValues,color='r',width=0.05)      
+        fig.savefig(outputPath+'.png')      
+        fig.savefig(outputPath+'.png')        
 class statisticalTests():
     def Specificity(self,list1, list2):
         '''
@@ -1670,4 +1809,7 @@ class statisticalTests():
         sp = self.Specificity(list1, list2)
         sn = self.Sensitivity(list1,list2)
         fscore = 2*sp*sn/(sp+sn) 
-        return sp,sn, fscore   
+        return sp,sn, fscore
+    def findcorelations(self,list1,list2):
+        return np.corrcoef(list1,list2)
+    
